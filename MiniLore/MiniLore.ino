@@ -5,7 +5,7 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_ADXL345_U.h>
 
-String version = "0.0.2";
+String version = "0.0.3";
 
 #define inGiu -10
 #define gradiErrore 2
@@ -336,53 +336,6 @@ void move_big_eye(int direction){
   center_eyes();
 }
 
-void setup() {
-  // put your setup code here, to run once:
-  
-  // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
-  display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS);
-  
-  
-  //for usb communication  
-  Serial.begin(115200);
-  
-  
-
-  // Show initial display buffer contents on the screen --
-  // the library initializes this with an Adafruit splash screen.
-  
-  // Clear the buffer
-  display.clearDisplay();
-  
-  display.setTextSize(1);             // Normal 1:1 pixel scale
-  display.setTextColor(SSD1306_WHITE);        // Draw white text
-  display.setCursor(0,0);             // Start at top-left corner
-  display.println("LA Labs");
-  display.println(version);
-  display.display();
-  delay(300);
-  sleep();
-  
-
-  // Draw a single pixel in white
-  //display.drawPixel(10, 10, SSD1306_WHITE);
-  
-
-  //accellerometro
-  while (!Serial)
-    delay(20);
-  if (!accel.begin()) {
-    Serial.println("Failed to initialize ADXL345 sensor!");
-    while (1);
-  }
-
-  delay(1500);
-  wakeup();
-  center_eyes(true);
-  // Chiudi la comunicazione seriale quando non è più necessaria ----------------------------------
-  //Serial.end();
-}
-
 void enterDeepSleep(){
   sleep();
   delay(100);
@@ -397,28 +350,17 @@ void exitDeepSleep(){
   center_eyes(true); // Centra gli occhi quando il display è riattivato
 }
 
-unsigned long previousTemperatureCheckTime = 0;
-const unsigned long temperatureCheckInterval = 500; // Verifica la temperatura ogni 500 millisecondi
-bool displayOn = true;
-
-int randomBlink=2500;
-
-void loop() {
-
-  unsigned long currentMillis = millis();
-
-  // Verifica la acceleration solo ogni 500 millisecondi
-  if (currentMillis - previousTemperatureCheckTime >= temperatureCheckInterval) {
-    previousTemperatureCheckTime = currentMillis;
-      
-    // Leggi la acceleration e aggiorna lo stato del display
+void task1(void * parameters){
+  for(;;){
+    // Leggi l'accellerazione e aggiorna lo stato del display di conseguenza
     updateDisplayTemperature();
+    vTaskDelay(1000/portTICK_PERIOD_MS);
   }
+}
 
-  // Esegui blink() ogni 50 secondi
-  if ((currentMillis % randomBlink) == 0) {
-    randomBlink=500 * random(6, 20);
-
+void task2(void * parameters){
+  for(;;){
+    // Leggi l'accellerazione e aggiorna lo stato del display di conseguenza
     if (random(0, 3) != 2) {
       blink();
     } else {
@@ -468,9 +410,77 @@ void loop() {
           break;
       }
     }
+    vTaskDelay(random(6, 20)*1000/portTICK_PERIOD_MS);
   }
 }
 
+void setup() {
+  // put your setup code here, to run once:
+  
+  // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+  display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS);
+  
+  
+  //for usb communication  
+  Serial.begin(115200);
+  
+  
+
+  // Show initial display buffer contents on the screen --
+  // the library initializes this with an Adafruit splash screen.
+  
+  // Clear the buffer
+  display.clearDisplay();
+  
+  display.setTextSize(1);             // Normal 1:1 pixel scale
+  display.setTextColor(SSD1306_WHITE);        // Draw white text
+  display.setCursor(0,0);             // Start at top-left corner
+  display.println("LA Labs");
+  display.println(version);
+  display.display();
+  delay(300);
+  sleep();
+  
+  //accellerometro
+  while (!Serial)
+    delay(20);
+  if (!accel.begin()) {
+    Serial.println("Failed to initialize ADXL345 sensor!");
+    while (1);
+  }
+
+  delay(1500);
+  wakeup();
+  center_eyes(true);
+  
+  
+  xTaskCreate(
+	  task1, //function name
+	  "Accelerometro", //task name
+	  10000, //stack size
+	  NULL, //task parameters
+	  1, //task preority
+	  NULL //task handle
+  );
+
+  xTaskCreate(
+	  task2, //function name
+	  "Action", //task name
+	  10000, //stack size
+	  NULL, //task parameters
+	  1, //task preority
+	  NULL //task handle
+  );
+  
+  // Chiudi la comunicazione seriale quando non è più necessaria -------------------------------------------------------------------- DA FARE IN VERSIONE FINALE
+  //Serial.end();
+}
+
+void loop() {
+
+}
+
+bool displayOn = true;
 void updateDisplayTemperature() {
 
   sensors_event_t event_acc;
@@ -487,13 +497,23 @@ void updateDisplayTemperature() {
 
   // Controlla se la temperatura è inferiore a 20 gradi
   if (event_acc.acceleration.z > inGiu - gradiErrore && event_acc.acceleration.z < inGiu + gradiErrore) {
-    // Spegni il display se non è già spento
-    if (displayOn) {
-      Serial.println("Display off");
-      enterDeepSleep();
-      displayOn = false; // Imposta il flag dello stato del display a spento
+    delay(1000);
+    if (event_acc.acceleration.z > inGiu - gradiErrore && event_acc.acceleration.z < inGiu + gradiErrore) {
+      // Spegni il display se non è già spento
+      if (displayOn) {
+        Serial.println("Display off");
+        enterDeepSleep();
+        displayOn = false; // Imposta il flag dello stato del display a spento
+      }
+    } else {
+      // Riaccendi il display se è spento
+      if (!displayOn) {
+        Serial.println("Display on");
+        exitDeepSleep();
+        displayOn = true; // Imposta il flag dello stato del display ad acceso
+      }
     }
-  } else {
+  }else {
     // Riaccendi il display se è spento
     if (!displayOn) {
       Serial.println("Display on");
